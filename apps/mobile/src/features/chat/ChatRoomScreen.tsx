@@ -41,6 +41,7 @@ export function ChatRoomScreen({ route, navigation }: ChatRoomScreenProps) {
     setCurrentChat,
     markAsRead,
     hasMoreMessages,
+    getDecryptedContent,
   } = useChatStore();
 
   const messages = allMessages.get(chatId) || [];
@@ -106,6 +107,8 @@ export function ChatRoomScreen({ route, navigation }: ChatRoomScreenProps) {
     ({ item }: { item: MessageType }) => {
       const isMine = item.senderId === user?.id;
       const isDeleted = item.isDeleted;
+      const decryptedText = getDecryptedContent(item.id || item.localId);
+      const displayText = decryptedText || item.encryptedContent;
 
       return (
         <Animated.View
@@ -144,7 +147,7 @@ export function ChatRoomScreen({ route, navigation }: ChatRoomScreenProps) {
                   },
                 ]}
               >
-                {item.encryptedContent}
+                {displayText}
               </Text>
               <View style={styles.messageFooter}>
                 <Text
@@ -201,7 +204,7 @@ export function ChatRoomScreen({ route, navigation }: ChatRoomScreenProps) {
         </Animated.View>
       );
     },
-    [user, colors, typography, borderRadius],
+    [user, colors, typography, borderRadius, getDecryptedContent],
   );
 
   return (

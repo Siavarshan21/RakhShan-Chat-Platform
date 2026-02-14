@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { api } from '../services/api';
+import { api, encryptionApi } from '../services/api';
 import { ws } from '../services/websocket';
 import { encryption } from '../services/encryption';
 import { ChatListItem, Message, WsEventType, TypingIndicator } from '@rakhshan/shared';
@@ -9,6 +9,7 @@ interface ChatState {
   chats: ChatListItem[];
   currentChatId: string | null;
   messages: Map<string, Message[]>;
+  decryptedContent: Map<string, string>;
   typingUsers: Map<string, Set<string>>;
   pendingMessages: Map<string, Message>;
   isLoadingChats: boolean;
@@ -22,6 +23,7 @@ interface ChatState {
   createPrivateChat: (userId: string) => Promise<string>;
   createGroup: (name: string, memberIds: string[]) => Promise<string>;
   markAsRead: (chatId: string) => void;
+  getDecryptedContent: (messageId: string) => string | undefined;
 
   // WebSocket event handlers
   handleNewMessage: (message: Message) => void;
@@ -36,6 +38,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   chats: [],
   currentChatId: null,
   messages: new Map(),
+  decryptedContent: new Map(),
   typingUsers: new Map(),
   pendingMessages: new Map(),
   isLoadingChats: false,
@@ -83,6 +86,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // Encrypt the message
     const { ciphertext, nonce } = await encryption.encrypt(content, recipientPublicKey);
     const encryptedContent = JSON.stringify({ ciphertext, nonce });
+
+    // Store plaintext for own message
+    set((state) => {
+      const decrypted = new Map(state.decryptedContent);
+      decrypted.set(localId, content);
+      return { decryptedContent: decrypted };
+    });
 
     // Optimistic UI update
     const optimisticMessage: Message = {
@@ -150,7 +160,32 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
+  getDecryptedContent: (messageId: string) => {
+    return get().decryptedContent.get(messageId);
+  },
+
   handleNewMessage: (message: Message) => {
+    // Decrypt message in background (non-blocking)
+    (async () => {
+      try {
+        const encrypted = JSON.parse(message.encryptedContent);
+        if (encrypted.ciphertext && encrypted.nonce && message.sender?.publicKey) {
+          const plaintext = await encryption.decrypt(
+            encrypted.ciphertext,
+            encrypted.nonce,
+            message.sender.publicKey
+          );
+          set((state) => {
+            const decrypted = new Map(state.decryptedContent);
+            decrypted.set(message.id, plaintext);
+            return { decryptedContent: decrypted };
+          });
+        }
+      } catch (error) {
+        console.warn('Failed to decrypt message:', error);
+      }
+    })();
+
     set((state) => {
       const chatId = message.chatId;
       const existing = state.messages.get(chatId) || [];
