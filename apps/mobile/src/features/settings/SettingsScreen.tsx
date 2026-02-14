@@ -1,12 +1,21 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Switch, StyleSheet } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useTheme } from '../../hooks/useTheme';
-import { useThemeStore } from '../../store/theme.store';
+import { useThemeStore, useSettingsStore } from '../../store';
 
-export function SettingsScreen() {
+interface SettingsScreenProps {
+  navigation: any;
+}
+
+export function SettingsScreen({ navigation }: SettingsScreenProps) {
   const { colors, typography, borderRadius, spacing } = useTheme();
   const { mode, setMode } = useThemeStore();
+  const { notifications, togglePush, togglePreview, toggleSound, initialize } = useSettingsStore();
+
+  useEffect(() => {
+    initialize();
+  }, []);
 
   const themeOptions: Array<{ label: string; value: 'light' | 'dark' | 'system' }> = [
     { label: 'Light', value: 'light' },
@@ -55,8 +64,8 @@ export function SettingsScreen() {
             <Switch
               trackColor={{ false: colors.border, true: colors.primary }}
               thumbColor={colors.onPrimary}
-              value={true}
-              onValueChange={() => {}}
+              value={notifications.pushEnabled}
+              onValueChange={togglePush}
             />
           </View>
           <View
@@ -69,8 +78,8 @@ export function SettingsScreen() {
             <Switch
               trackColor={{ false: colors.border, true: colors.primary }}
               thumbColor={colors.onPrimary}
-              value={true}
-              onValueChange={() => {}}
+              value={notifications.messagePreview}
+              onValueChange={togglePreview}
             />
           </View>
           <View
@@ -83,8 +92,8 @@ export function SettingsScreen() {
             <Switch
               trackColor={{ false: colors.border, true: colors.primary }}
               thumbColor={colors.onPrimary}
-              value={true}
-              onValueChange={() => {}}
+              value={notifications.soundEnabled}
+              onValueChange={toggleSound}
             />
           </View>
         </View>
