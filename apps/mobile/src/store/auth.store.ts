@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { api, ApiError } from '../services/api';
+import { api, ApiError, encryptionApi } from '../services/api';
 import { ws } from '../services/websocket';
 import { encryption } from '../services/encryption';
 import { secureStorage } from '../utils/storage';
@@ -81,6 +81,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       await secureStorage.setTokens(result.tokens.accessToken, result.tokens.refreshToken);
       set({ user: result.user, isAuthenticated: true, isLoading: false });
       await ws.connect();
+
+      // Upload pre-keys for E2E encryption (non-blocking)
+      encryption.generatePreKeyBundle(100).then((preKeys) => {
+        const publicPreKeys = preKeys.map((pk) => ({
+          keyId: pk.keyId,
+          publicKey: pk.publicKey,
+        }));
+        encryptionApi.uploadPreKeys(publicPreKeys).catch(() => {
+          console.warn('Failed to upload pre-keys, will retry later');
+        });
+      });
     } catch (err) {
       const message = err instanceof ApiError ? err.message : 'Registration failed';
       set({ error: message, isLoading: false });
@@ -123,6 +134,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
     ws.disconnect();
     await secureStorage.clearTokens();
+    await encryption.clearAllSessions();
     set({ user: null, isAuthenticated: false, error: null });
   },
 
