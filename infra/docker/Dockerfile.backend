@@ -1,0 +1,65 @@
+# Build stage
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Copy root package files
+COPY package.json package-lock.json* turbo.json tsconfig.base.json ./
+
+# Copy workspace package.json files
+COPY apps/backend/package.json ./apps/backend/
+COPY packages/shared/package.json ./packages/shared/
+
+# Install dependencies
+RUN npm ci --ignore-scripts
+
+# Copy source code
+COPY packages/shared ./packages/shared
+COPY apps/backend ./apps/backend
+
+# Generate Prisma client
+RUN cd apps/backend && npx prisma generate
+
+# Build shared package
+RUN cd packages/shared && npx tsc || true
+
+# Build backend
+RUN cd apps/backend && npx nest build
+
+# Production stage
+FROM node:20-alpine AS production
+
+RUN apk add --no-cache dumb-init
+
+WORKDIR /app
+
+ENV NODE_ENV=production
+
+# Copy root package files
+COPY package.json package-lock.json* ./
+COPY apps/backend/package.json ./apps/backend/
+COPY packages/shared/package.json ./packages/shared/
+
+# Install production dependencies only
+RUN npm ci --omit=dev --ignore-scripts
+
+# Copy built output
+COPY --from=builder /app/apps/backend/dist ./apps/backend/dist
+COPY --from=builder /app/apps/backend/prisma ./apps/backend/prisma
+COPY --from=builder /app/apps/backend/node_modules/.prisma ./apps/backend/node_modules/.prisma
+COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
+
+# Generate Prisma client for production
+RUN cd apps/backend && npx prisma generate
+
+# Create non-root user
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+USER appuser
+
+EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/v1/health || exit 1
+
+ENTRYPOINT ["dumb-init", "--"]
+CMD ["node", "apps/backend/dist/main.js"]

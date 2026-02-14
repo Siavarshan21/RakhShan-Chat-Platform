@@ -1,0 +1,342 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatusEnum {
+  online
+  offline
+  away
+  dnd
+}
+
+enum AccountStatusEnum {
+  active
+  suspended
+  deleted
+  pending_verification
+}
+
+enum ChatTypeEnum {
+  private
+  group
+  channel
+}
+
+enum ChatMemberRoleEnum {
+  owner
+  admin
+  member
+}
+
+enum MessageTypeEnum {
+  text
+  image
+  video
+  audio
+  voice_note
+  document
+  location
+  contact
+  sticker
+  system
+}
+
+enum MessageStatusEnum {
+  sending
+  sent
+  delivered
+  read
+  failed
+}
+
+enum CallTypeEnum {
+  voice
+  video
+}
+
+enum CallStatusEnum {
+  initiating
+  ringing
+  connected
+  on_hold
+  ended
+  missed
+  declined
+  failed
+}
+
+model User {
+  id            String            @id @default(uuid()) @db.Uuid
+  phoneNumber   String            @unique @map("phone_number")
+  username      String?           @unique
+  displayName   String            @map("display_name")
+  bio           String?
+  avatarUrl     String?           @map("avatar_url")
+  status        UserStatusEnum    @default(offline)
+  accountStatus AccountStatusEnum @default(pending_verification) @map("account_status")
+  lastSeenAt    DateTime?         @map("last_seen_at")
+  publicKey     String            @map("public_key")
+  passwordHash  String?           @map("password_hash")
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
+
+  sentMessages     Message[]          @relation("SentMessages")
+  chatMembers      ChatMember[]
+  deviceSessions   DeviceSession[]
+  deviceTokens     DeviceToken[]
+  preKeys          PreKey[]
+  callParticipants CallParticipant[]
+  blockedUsers     BlockedUser[]      @relation("Blocker")
+  blockedBy        BlockedUser[]      @relation("Blocked")
+  reactions        MessageReaction[]
+
+  @@index([phoneNumber])
+  @@index([username])
+  @@index([status])
+  @@map("users")
+}
+
+model DeviceSession {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  deviceId     String   @map("device_id")
+  deviceName   String   @map("device_name")
+  platform     String
+  refreshToken String?  @map("refresh_token")
+  lastActiveAt DateTime @default(now()) @map("last_active_at")
+  ipAddress    String?  @map("ip_address")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceId])
+  @@index([userId])
+  @@map("device_sessions")
+}
+
+model DeviceToken {
+  id       String @id @default(uuid()) @db.Uuid
+  userId   String @map("user_id") @db.Uuid
+  token    String @unique
+  platform String
+  deviceId String @map("device_id")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("device_tokens")
+}
+
+model PreKey {
+  id        String @id @default(uuid()) @db.Uuid
+  userId    String @map("user_id") @db.Uuid
+  keyId     Int    @map("key_id")
+  publicKey String @map("public_key")
+  isUsed    Boolean @default(false) @map("is_used")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, keyId])
+  @@index([userId, isUsed])
+  @@map("pre_keys")
+}
+
+model Chat {
+  id              String       @id @default(uuid()) @db.Uuid
+  type            ChatTypeEnum
+  name            String?
+  description     String?
+  avatarUrl       String?      @map("avatar_url")
+  creatorId       String       @map("creator_id") @db.Uuid
+  encryptionKeyId String?      @map("encryption_key_id")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+
+  members  ChatMember[]
+  messages Message[]
+  calls    Call[]
+
+  @@index([type])
+  @@index([creatorId])
+  @@map("chats")
+}
+
+model ChatMember {
+  id         String             @id @default(uuid()) @db.Uuid
+  chatId     String             @map("chat_id") @db.Uuid
+  userId     String             @map("user_id") @db.Uuid
+  role       ChatMemberRoleEnum @default(member)
+  isMuted    Boolean            @default(false) @map("is_muted")
+  mutedUntil DateTime?          @map("muted_until")
+  isPinned   Boolean            @default(false) @map("is_pinned")
+  isArchived Boolean            @default(false) @map("is_archived")
+  lastReadAt DateTime?          @map("last_read_at")
+  joinedAt   DateTime           @default(now()) @map("joined_at")
+
+  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([chatId, userId])
+  @@index([userId])
+  @@index([chatId])
+  @@map("chat_members")
+}
+
+model Message {
+  id               String           @id @default(uuid()) @db.Uuid
+  localId          String           @map("local_id")
+  chatId           String           @map("chat_id") @db.Uuid
+  senderId         String           @map("sender_id") @db.Uuid
+  type             MessageTypeEnum  @default(text)
+  encryptedContent String           @map("encrypted_content")
+  replyToId        String?          @map("reply_to_id") @db.Uuid
+  forwardedFromId  String?          @map("forwarded_from_id") @db.Uuid
+  isEdited         Boolean          @default(false) @map("is_edited")
+  isDeleted        Boolean          @default(false) @map("is_deleted")
+  expiresAt        DateTime?        @map("expires_at")
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+
+  chat         Chat               @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  sender       User               @relation("SentMessages", fields: [senderId], references: [id])
+  replyTo      Message?           @relation("Replies", fields: [replyToId], references: [id])
+  replies      Message[]          @relation("Replies")
+  forwardedFrom Message?          @relation("Forwards", fields: [forwardedFromId], references: [id])
+  forwards     Message[]          @relation("Forwards")
+  attachments  MessageAttachment[]
+  reactions    MessageReaction[]
+  receipts     MessageReceipt[]
+  deletedFor   MessageDeletedFor[]
+
+  @@index([chatId, createdAt(sort: Desc)])
+  @@index([senderId])
+  @@index([localId])
+  @@map("messages")
+}
+
+model MessageAttachment {
+  id           String  @id @default(uuid()) @db.Uuid
+  messageId    String  @map("message_id") @db.Uuid
+  type         String
+  url          String
+  thumbnailUrl String? @map("thumbnail_url")
+  fileName     String? @map("file_name")
+  fileSize     Int?    @map("file_size")
+  mimeType     String  @map("mime_type")
+  width        Int?
+  height       Int?
+  duration     Int?
+  encryptedKey String  @map("encrypted_key")
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+  @@map("message_attachments")
+}
+
+model MessageReaction {
+  id        String   @id @default(uuid()) @db.Uuid
+  messageId String   @map("message_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  emoji     String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
+  @@map("message_reactions")
+}
+
+model MessageReceipt {
+  id        String           @id @default(uuid()) @db.Uuid
+  messageId String           @map("message_id") @db.Uuid
+  userId    String           @map("user_id") @db.Uuid
+  status    MessageStatusEnum
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+  @@index([messageId])
+  @@map("message_receipts")
+}
+
+model MessageDeletedFor {
+  id        String @id @default(uuid()) @db.Uuid
+  messageId String @map("message_id") @db.Uuid
+  userId    String @map("user_id") @db.Uuid
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+  @@map("message_deleted_for")
+}
+
+model Call {
+  id        String         @id @default(uuid()) @db.Uuid
+  chatId    String         @map("chat_id") @db.Uuid
+  callerId  String         @map("caller_id") @db.Uuid
+  type      CallTypeEnum
+  status    CallStatusEnum @default(initiating)
+  startedAt DateTime?      @map("started_at")
+  endedAt   DateTime?      @map("ended_at")
+  duration  Int?
+  createdAt DateTime       @default(now()) @map("created_at")
+
+  chat         Chat              @relation(fields: [chatId], references: [id])
+  participants CallParticipant[]
+
+  @@index([chatId])
+  @@index([callerId])
+  @@map("calls")
+}
+
+model CallParticipant {
+  id             String   @id @default(uuid()) @db.Uuid
+  callId         String   @map("call_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  isMuted        Boolean  @default(false) @map("is_muted")
+  isVideoEnabled Boolean  @default(false) @map("is_video_enabled")
+  joinedAt       DateTime @default(now()) @map("joined_at")
+  leftAt         DateTime? @map("left_at")
+
+  call Call @relation(fields: [callId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([callId, userId])
+  @@index([callId])
+  @@map("call_participants")
+}
+
+model BlockedUser {
+  id        String   @id @default(uuid()) @db.Uuid
+  blockerId String   @map("blocker_id") @db.Uuid
+  blockedId String   @map("blocked_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  blocker User @relation("Blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked User @relation("Blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+  @@map("blocked_users")
+}
+
+model VerificationCode {
+  id          String   @id @default(uuid()) @db.Uuid
+  phoneNumber String   @map("phone_number")
+  code        String
+  attempts    Int      @default(0)
+  isUsed      Boolean  @default(false) @map("is_used")
+  expiresAt   DateTime @map("expires_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([phoneNumber, code])
+  @@map("verification_codes")
+}

@@ -1,0 +1,129 @@
+name: Rakhshan Chat CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  lint-and-test:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: rakhshan_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: cd apps/backend && npx prisma generate
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/rakhshan_test?schema=public
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Run database migrations
+        run: cd apps/backend && npx prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/rakhshan_test?schema=public
+
+      - name: Test backend
+        run: npm run test -- --filter=@rakhshan/backend
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/rakhshan_test?schema=public
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: test-jwt-secret-for-ci-minimum-32-chars
+          JWT_REFRESH_SECRET: test-refresh-secret-for-ci-min-32-chars
+
+      - name: Test shared
+        run: npm run test -- --filter=@rakhshan/shared
+
+  build-backend:
+    name: Build Backend
+    needs: lint-and-test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: infra/docker/Dockerfile.backend
+          push: false
+          tags: rakhshan-chat-backend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  build-mobile:
+    name: Build Mobile
+    needs: lint-and-test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup Expo
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Build mobile app
+        working-directory: apps/mobile
+        run: npx expo export
