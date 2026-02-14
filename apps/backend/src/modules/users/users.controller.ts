@@ -66,4 +66,25 @@ export class UsersController {
     const blocked = await this.usersService.getBlockedUsers(user.sub);
     return { success: true, data: blocked };
   }
+
+  @Put('pre-keys')
+  async uploadPreKeys(
+    @CurrentUser() user: JwtPayload,
+    @Body() body: { preKeys: Array<{ keyId: number; publicKey: string }> },
+  ) {
+    await this.usersService.uploadPreKeys(user.sub, body.preKeys);
+    return { success: true, data: { message: 'Pre-keys uploaded' } };
+  }
+
+  @Get(':userId/pre-key')
+  async getPreKey(@Param('userId') userId: string) {
+    const preKey = await this.usersService.getPreKey(userId);
+    return { success: true, data: preKey };
+  }
+
+  @Get(':userId/public-key')
+  async getPublicKey(@Param('userId') userId: string) {
+    const user = await this.usersService.findById(userId);
+    return { success: true, data: { publicKey: user.publicKey, userId: user.id } };
+  }
 }

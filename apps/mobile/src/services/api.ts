@@ -141,3 +141,18 @@ export class ApiError extends Error {
 }
 
 export const api = new ApiClient();
+
+// Encryption API methods
+export const encryptionApi = {
+  async uploadPreKeys(preKeys: Array<{ keyId: number; publicKey: string }>) {
+    return api.put('/users/pre-keys', { preKeys });
+  },
+
+  async getPreKey(userId: string): Promise<{ keyId: number; publicKey: string }> {
+    return api.get(`/users/${userId}/pre-key`);
+  },
+
+  async getPublicKey(userId: string): Promise<{ publicKey: string; userId: string }> {
+    return api.get(`/users/${userId}/public-key`);
+  },
+};

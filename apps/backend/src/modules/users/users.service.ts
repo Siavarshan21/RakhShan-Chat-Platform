@@ -211,4 +211,53 @@ export class UsersService {
     await this.prisma.deviceSession.deleteMany({ where: { userId } });
     await this.redisService.del(`user:${userId}`);
   }
+
+  async uploadPreKeys(userId: string, preKeys: Array<{ keyId: number; publicKey: string }>) {
+    await this.prisma.$transaction(
+      preKeys.map((pk) =>
+        this.prisma.preKey.upsert({
+          where: {
+            userId_keyId: { userId, keyId: pk.keyId },
+          },
+          create: {
+            userId,
+            keyId: pk.keyId,
+            publicKey: pk.publicKey,
+            isUsed: false,
+          },
+          update: {
+            publicKey: pk.publicKey,
+            isUsed: false,
+          },
+        }),
+      ),
+    );
+  }
+
+  async getPreKey(userId: string) {
+    const preKey = await this.prisma.preKey.findFirst({
+      where: { userId, isUsed: false },
+      orderBy: { keyId: 'asc' },
+    });
+
+    if (!preKey) {
+      throw new NotFoundException('No unused pre-keys available');
+    }
+
+    await this.prisma.preKey.update({
+      where: { id: preKey.id },
+      data: { isUsed: true },
+    });
+
+    return {
+      keyId: preKey.keyId,
+      publicKey: preKey.publicKey,
+    };
+  }
+
+  async getPreKeyCount(userId: string): Promise<number> {
+    return this.prisma.preKey.count({
+      where: { userId, isUsed: false },
+    });
+  }
 }
